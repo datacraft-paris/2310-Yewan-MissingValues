@@ -1,3 +1,3 @@
 # 2310-Yewan-MissingValues
 
-Yewan Wang, data scientist at Miratlas
+workshop animated by Yewan Wang, data scientist at Miratlas
