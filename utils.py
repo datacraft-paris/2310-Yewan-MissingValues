@@ -2,6 +2,49 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from astropy.coordinates import get_sun, AltAz, EarthLocation
+import astropy.coordinates as coord
+from astropy.time import Time
+import astropy.units as u
+
+
+dic_location = {
+                'tenerife': {'lat': 28.3005372, 'lon': -16.513448, 'height': 731, 'timezone': 'Atlantic/Canary'}
+                }
+
+
+def get_astro_sunAlt(loc, given_time, utc=True):
+    earth_loc = EarthLocation(lat=loc['lat'] * u.deg, lon=loc['lon'] * u.deg, height=loc['height'] * u.m)
+    if utc:
+        utc_time = Time(given_time)
+    else:
+        timezone = pytz.timezone(loc['timezone'])
+        utc_time = Time(given_time.astimezone(timezone))
+
+    alt_az = coord.AltAz(location=earth_loc, obstime=utc_time)
+    alt = get_sun(utc_time).transform_to(alt_az).alt
+    # az = get_sun(utc_time).transform_to(alt_az).az
+
+    return alt.degree
+
+def add_features_from_raw_data(df_original, loc):
+    '''
+    Extract meaningful info to expand features of original data.
+    Extract timing from time object: hour of day, month, season
+    Extract current sun altitude
+    :param df_original:
+    :param loc:
+    :return:
+    '''
+    df = df_original.copy()
+    df['hour_of_day'] = df['time'].dt.hour
+    df['month'] = df['time'].dt.month
+    df['season'] = (df['month'] % 12 + 3) // 3  # 1: Winter, 2: Spring, 3: Summer, 4: Fall
+
+    # Add sun altitude
+    df['sun_alt'] = df.apply(lambda row: get_astro_sunAlt(loc, row['time']), axis=1)
+    
+    return df
 
 def missingDF(df) : 
     
@@ -112,4 +155,50 @@ def plot_corr_saison_variable(x,y,saison) :
     print(f"Le coefficient de correlation entre {x} et {y} pour la saison {saison[1]} est de", "{0:.3f}".format(saison[0][x].corr(saison[0][y])*100),'% \n')
     saison[0].plot.scatter(x, y)
     plt.show()
+
+
+def print_results_table(table, header = None):
+    '''
+    Print table with aligened format, add header if needed.
+    '''
+    if isinstance(header, list) and len(header) >=1:
+        table.insert(0, header)
     
+    longest_cols = [
+        (max([len(str(row[i])) for row in table]) + 3)
+        for i in range(len(table[0]))
+    ]
+    row_format = "".join(["{:<" + str(longest_col) + "}" for longest_col in longest_cols])
+    for row in table:
+        print(row_format.format(*row))
+
+        
+
+def correlation_table(df_to_compute, coef = 0.7, params = None):
+    '''
+    Compute pearson correlation between parameters(params) in given dataframe(df_to_compute), 
+    find all the pairs with correlation coefficient higher than coef.
+    Inputs:
+    - df_to_compute: the dataframe with multiple continuous variables
+    - coef: correlation coefficient threadshold
+    - params: given features, the name of the variables to compute
+    Outputs:
+    Parameter pairs table with the correlation results (without header), .eg:
+    [[a,b,corr1], [a,c,corr2], [b,d,corr3]]    
+    '''
+    if params == None:
+        params = list(df_to_compute.columns)
+        
+    corr = df_to_compute[params].corr(method = 'spearman')
+    corr = df_to_compute.corr(method = 'spearman')
+    corr_table = []
+    #Add elements, when pearson correlation between two params are greater than 0.7
+    for i in range(len(params)-1):
+        for j in range(i+1, len(params)):
+            param1 = params[i]
+            param2 = params[j]
+            if (abs(corr[param1][param2]) >= coef):
+                corr_table.append([param1, param2, corr[param1][param2]])
+    corr_table.sort(key = lambda x: abs(x[2]), reverse=True) # Sort by correlation value, descending order
+    return corr_table
+
