@@ -18,7 +18,8 @@ venv/main/bin/activate: .env.bash
 	-( \
 	. .env.bash \
 	&& test -d venv/main \
-	|| $(PYTHON) -m venv venv/main)
+	|| $(PYTHON) -m venv venv/main \
+	)
 	-( \
 	. .env.bash \
 	&& . venv/main/bin/activate \
