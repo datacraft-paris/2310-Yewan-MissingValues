@@ -1,9 +1,10 @@
+# emacs backup files
 *~
-/.virtual_documents
+.env.bash
+.virtual_documents/
 .ipynb_checkpoints/
 __MACOSX
 __pycache__
 
-/tenerife2020_extended.csv
-/data
+/data/
 /venv/
