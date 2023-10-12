@@ -12,8 +12,8 @@ help:
 .env.bash:
 	touch .env.bash
 
-venv: ## Create Python environement with venv.
-venv: venv/main/bin/activate
+venv-build: ## Create Python environement with venv.
+venv-build: venv/main/bin/activate
 venv/main/bin/activate: .env.bash
 	-( \
 	. .env.bash \
