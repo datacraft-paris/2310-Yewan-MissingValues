@@ -58,6 +58,7 @@ def missingDF(df) :
     missing = pd.DataFrame(missing)
     return missing
 
+
 def replace_nan_by_mean(df,var):
     
     indexNan = list(df[df[var].isna() == True].index)
