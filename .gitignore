@@ -1,5 +1,9 @@
-.DS_Store
+*~
+/.virtual_documents
 .ipynb_checkpoints/
-__pycache__/
-data/
-data.zip
+__MACOSX
+__pycache__
+
+/tenerife2020_extended.csv
+/data
+/venv/
