@@ -10,7 +10,7 @@ help:
 
 # This file is used for bypass variables and set some specific env. vars.
 .env.bash:
-	touch .env.bash
+	-(touch .env.bash)
 
 venv-build: ## Create Python environement with venv.
 venv-build: venv/main/bin/activate
@@ -56,6 +56,7 @@ data-zip: script/zip.bash data.zip
 
 clean: ## Cleaning all files and directories generated.
 clean:
+	-(rm -f .env.bash)
 	-(rm -rf __pycache__)
 	-(rm -rf __MACOSX)
 	-(rm -rf venv)
