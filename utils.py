@@ -1,3 +1,9 @@
+'''
+All that is needed for run the workshop.
+'''
+from IPython.display import Markdown
+from IPython.display import display
+import inspect
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -13,7 +19,60 @@ dic_location = {
                 }
 
 
+def showsrc(fcn):
+    display(Markdown(f'''```python\n{inspect.getsource(fcn)}```'''))
+
+    
+def load_raw_data(path_data_raw: str) -> pd.DataFrame:
+    """
+    Load raw data from a CSV file into a DataFrame.
+    
+    Parameters:
+    - path_data_raw (str): The path to the raw data CSV file.
+    
+    Returns:
+    - pd.DataFrame: A DataFrame containing the loaded data with specified optimizations.
+    
+    Notes:
+    - The function skips unnecessary columns while reading the CSV.
+    - It removes duplicate rows by checking columns 'time'
+    - It replaces zeros and infinite values with NaN.
+    - The 'time' column is converted to datetime format and set as the index.
+    """
+    
+    # Removed 'isoplan' and 'd_rain_rate' from the list as they will not be used.   
+    cols_names = [
+        'time', 'status', 'd_ext_temp', 'd_humid', 'd_wind', 'd_wind_dir', 'day_r0', 
+        'day_see', 'day_see_stddev', 'down_ir', 'humid', 'irrad', 'night_r0', 'night_see', 
+        'press','pyr_temp', 'scint', 'sky_temp', 'transp', 'wat_col_hei'
+    ]
+    column_types = [
+        'string', 'string', 'float32', 'float32', 'float32', 'float32', 'float32', 'float32', 
+        'float32', 'float32','float32', 'float32', 'float32', 'float32', 'float32', 'float32', 
+        'float32', 'float32', 'float32', 'float32'
+    ]
+    dtype = dict(zip(cols_names, column_types))
+
+    df = pd.read_csv(path_data_raw, usecols=cols_names, dtype=dtype)
+    
+    # Replace zero and infinity values with NaN
+    df.replace([0, np.inf, -np.inf], np.nan, inplace=True)
+    
+    # Convert time to datetime format and set as index
+    df['time'] = pd.to_datetime(df['time'], unit='ns')
+    # Remove duplicated values
+    df = df[~df.time.duplicated()]
+    df.set_index('time', inplace=True)
+    
+    return df
+
+
 def get_astro_sunAlt(loc, given_time, utc=True):
+    """
+    Get the real-time altitude of the sun based on GPS location(latitude et longitude) and the utc time
+    :param: loc: site name, related to GPS and time zone in global dictionary dic-location
+    :param: given time: time in format
+    """
     earth_loc = EarthLocation(lat=loc['lat'] * u.deg, lon=loc['lon'] * u.deg, height=loc['height'] * u.m)
     if utc:
         utc_time = Time(given_time)
@@ -27,36 +86,72 @@ def get_astro_sunAlt(loc, given_time, utc=True):
 
     return alt.degree
 
-def add_features_from_raw_data(df_original, loc):
+def add_skystates_from_model(df_original: pd.DataFrame, path_label: str) -> pd.DataFrame:
+    '''
+    Load sky states from classification model, merge the states with original dataframe.
+    :param df_original: raw dataframe
+    :param path_label: csv file, result from classification model
+    :return: new dataframe with extended sky states: 
+    c0 night
+    c1 sunny
+    c2 cloud
+    c3 fog
+    c4 rain
+    c5 foreign
+    c6 freeze
+    '''
+    df = df_original.copy()
+    df_states = pd.read_csv(path_label, usecols=['utc', 'c0', 'c1', 'c2','c3', 'c4', 'c5', 'c6'])
+    df_states['utc'] = pd.to_datetime(df_states['utc'], unit='ns')
+    #Truncate `time` column to minute precision 
+    #(ref: https://stackoverflow.com/questions/28773342/truncate-timestamp-column-to-hour-precision-in-pandas-dataframe)
+    df['hourly'] = df['time'].values.astype('<M8[m]') 
+    df = df.merge(df_states, left_on=df.hourly, right_on=df_states.utc, how='left')
+    df.drop(columns=['key_0', 'utc', 'hourly'], inplace=True)
+    return df
+
+def add_features_from_raw_data(df_original: pd.DataFrame, path_label: str, loc: dict):
     '''
     Extract meaningful info to expand features of original data.
     Extract timing from time object: hour of day, month, season
     Extract current sun altitude
-    :param df_original:
-    :param loc:
-    :return:
+    :param df_original: raw dataframe
+    :param loc: site name, related to GPS and time zone in global dictionary dic-location
+    :return: new dataframe with extended features, hour, month, season, numeric status, sun altitude
     '''
     df = df_original.copy()
+
+    # Add timing
     df['hour_of_day'] = df['time'].dt.hour
     df['month'] = df['time'].dt.month
     df['season'] = (df['month'] % 12 + 3) // 3  # 1: Winter, 2: Spring, 3: Summer, 4: Fall
 
-    # Add sun altitude
-    df['sun_alt'] = df.apply(lambda row: get_astro_sunAlt(loc, row['time']), axis=1)
+    # Encode DIMM status to numeric values
+    numeric_values, unique_statuses = pd.factorize(df['status'], use_na_sentinel=-1)
+    df['status_numeric'] = numeric_values +1
+
+    # Add sky states from a classification model
+    df = add_skystates_from_model(df, path_label)
     
+    # Add sun altitude
+    def get_sunalt(x):
+        return get_astro_sunAlt(loc, x)
+
+    df['sun_alt'] = df['time'].parallel_apply(get_sunalt)
+
     return df
 
-def missingDF(df) : 
-    
+
+def missingDF(df: pd.DataFrame) -> pd.DataFrame:
+    '''
+    Return a dataframe with the percentage of missing values.
+    '''
     n = len(df)
-    #df.isna().sum().sum() = 3 153 573 
     missing = df.isna().sum()
     index = list(missing.index)
     for i in index :
         missing[i] = float("{0:.2f}".format((missing[i]/n)*100))
-        
-    missing = pd.DataFrame(missing)
-    return missing
+    return pd.DataFrame(missing, columns=["%"]).sort_values("%", ascending=False)
 
 
 def replace_nan_by_mean(df,var):
@@ -64,7 +159,7 @@ def replace_nan_by_mean(df,var):
     indexNan = list(df[df[var].isna() == True].index)
 
     for index in indexNan :
-        var_0,var_1 = df[var][index-1],df[var][index+1]
+        var_0, var_1 = df[var][index-1],df[var][index+1]
         if np.isfinite(var_0) and np.isnan(var_1):
             df[var][index] = var_0
         elif np.isfinite(var_1) and np.isnan(var_0):
@@ -98,8 +193,10 @@ def complete_dataset(df,missing_rate):
     
     return dfCompleteData
 
-def missing_dataset(df,missing_rate):
-    
+def missing_dataset(df, missing_rate):
+    '''
+    A fonction that print the missing value in a dataframe that are supperior or equal to a given value.
+    '''
     missing_df = missingDF(df)
     list_var = list(missing_df.index)
     list_var_missing = ['time']
@@ -109,7 +206,7 @@ def missing_dataset(df,missing_rate):
         if missing_df[0][var] >= missing_rate :
             list_var_missing.append(var)
 
-    dfMissingData = df[list_var_missing]        
+    dfMissingData = df[list_var_missing].sort_values(ascending=False)
 
     return dfMissingData
 
@@ -127,7 +224,7 @@ def plot_one_param(data, param):
 
 #courbe pour un paramètre en fonction de deux variables : le temps et une "catégorie"   
 def plot_one_params_based_categories(data, param, catgr):
-    plot = sns.relplot(data = data, x = data.time, y = data[param], hue = data[catgr], height=6, aspect=8/6)
+    plot = sns.relplot(data = data, x = data.index, y = data[param], hue = data[catgr], height=6, aspect=8/6)
     plt.title('Evolution de la variable '+param+ ' en fonction du temps et la catégorie '+catgr)
 
 #courbe pour deux paramètres
@@ -190,8 +287,8 @@ def correlation_table(df_to_compute, coef = 0.7, params = None):
     if params == None:
         params = list(df_to_compute.columns)
         
-    corr = df_to_compute[params].corr(method = 'spearman')
-    corr = df_to_compute.corr(method = 'spearman')
+    corr = df_to_compute[params].corr(method = 'spearman', numeric_only=True)
+    corr = df_to_compute.corr(method = 'spearman', numeric_only=True)
     corr_table = []
     #Add elements, when pearson correlation between two params are greater than 0.7
     for i in range(len(params)-1):
