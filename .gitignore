@@ -5,5 +5,7 @@
 .ipynb_checkpoints/
 __MACOSX
 __pycache__
-
+# Python virtualenv.
 /venv/
+# Output of a notebook
+dimm.json
