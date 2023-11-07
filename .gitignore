@@ -9,3 +9,5 @@ __pycache__
 /venv/
 # Output of a notebook
 dimm.json
+# Dataset
+data/data-2310-Yewan-MissingValues-20231106/
