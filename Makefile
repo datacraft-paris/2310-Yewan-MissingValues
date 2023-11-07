@@ -46,20 +46,11 @@ nbs-clear-output:
 	jupyter nbconvert --ClearOutputPreprocessor.enabled=True --clear-output --inplace $$i; \
 	done
 
-data-unzip: ## Unzip the data (script/unzip.bash).
-data-unzip: script/unzip.bash data.zip 
-	(./$<)
-
-data-zip: ## Zip the data (script/zip.bash).
-data-zip: script/zip.bash data.zip 
-	(./$<)
-
 clean: ## Cleaning all files and directories generated.
 clean:
 	-(rm -f .env.bash)
 	-(rm -rf __pycache__)
 	-(rm -rf __MACOSX)
 	-(rm -rf venv)
-	-(rm -rf data)
 
 
