@@ -12,7 +12,16 @@ from astropy.coordinates import get_sun, AltAz, EarthLocation
 import astropy.coordinates as coord
 from astropy.time import Time
 import astropy.units as u
-
+import catboost as cb
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import shap
+from matplotlib import pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
+from sklearn.inspection import permutation_importance
 
 dic_location = {
                 'tenerife': {'lat': 28.3005372, 'lon': -16.513448, 'height': 731, 'timezone': 'Atlantic/Canary'}
@@ -300,3 +309,96 @@ def correlation_table(df_to_compute, coef = 0.7, params = None):
     corr_table.sort(key = lambda x: abs(x[2]), reverse=True) # Sort by correlation value, descending order
     return corr_table
 
+
+def plot_res(
+    pred: pd.Series, 
+    y: pd.Series, 
+    date_start: str=None, 
+    date_end: str=None):
+    '''
+    Function to help visualize ML prediction.
+    '''
+    dfplot = pd.DataFrame(index=y.index)
+    dfplot['true'] = y
+    dfplot['pred' ] = pred
+    mask = ~y.index.isnull()
+    if date_start:
+        mask = mask & (pd.to_datetime(date_start) <= dfplot.index) 
+    if date_end:
+        mask = mask & (dfplot.index <= pd.to_datetime(date_end)) 
+    dfplot[mask].plot()
+    
+
+def experiment(
+    df: pd.DataFrame(), 
+    cols_x: list, col_y: str, 
+    grid: dict, 
+    tag: str,
+    t_start: str,
+    t_end: str
+) -> cb.CatBoostRegressor:
+    """
+    Perform a ML experiment and return a model.
+    """
+    print(f"La valeur à prédire est {col_y}")
+
+    print("Avec les predicteur:")
+    for i in cols_x:
+        print(f"  {i}")
+
+
+    print(df.info())
+    plt.figure()
+    df[col_y].plot(figsize=(15, 6))
+    plt.show()
+
+    mask = ~df[col_y].isnull()
+    X = df[mask][cols_x]
+    y = df[mask][col_y]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state=5)
+
+    train_dataset = cb.Pool(X_train, y_train) 
+
+    model = cb.CatBoostRegressor(
+        loss_function="RMSE", 
+        silent=True,
+        train_dir=f'catboost-logs-{tag}' 
+    )
+
+    model.grid_search(grid, train_dataset, verbose=False)
+    
+    pred_train = model.predict(X_train)
+    pred_train = pd.Series(data=pred_train, index=X_train.index)
+
+    pred_test = model.predict(X_test)
+    pred_test = pd.Series(data=pred_test, index=X_test.index)
+    
+    rmse = (np.sqrt(mean_squared_error(y_test, pred_test)))
+
+    r2 = r2_score(y_test, pred_test)
+    print("Testing performance")
+    print("RMSE: {:.2f}".format(rmse))
+    print("R2: {:.2f}".format(r2))
+
+    sorted_feature_importance = model.feature_importances_.argsort()
+    plt.figure()
+    plt.barh(
+        X.columns[sorted_feature_importance], 
+        model.feature_importances_[sorted_feature_importance], 
+        color='turquoise'
+    )
+    plt.xlabel("CatBoost Feature Importance")
+    plt.show()
+
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+
+    plt.figure()
+    shap.summary_plot(shap_values, X_test, feature_names = X.columns[sorted_feature_importance])
+
+    plot_res(pred_train, y_train)
+    plot_res(pred_train, y_train, t_start, t_end)
+    plot_res(pred_test, y_test)
+    plot_res(pred_test, y_test, t_start, t_end)
+    
+    return model
